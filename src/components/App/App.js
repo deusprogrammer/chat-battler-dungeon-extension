@@ -32,15 +32,15 @@ export default class App extends React.Component{
             hasBattler: true,
             ready: false,
             botIsLive: false,
+            connecting: false
         }
     }
 
     connect() {
         this.ws = new W3CWebSocket(config.WS_URL);
         let jwt = this.jwt
-        let userId = this.userId
-        let username = this.username;
         this.ws.onopen = () => {
+            this.setState({connecting: false, wsError: null});
             this.ws.send(JSON.stringify({
                 type: "REGISTER",
                 jwt
@@ -49,9 +49,7 @@ export default class App extends React.Component{
             this.ws.send(JSON.stringify({
                 type: "CONTEXT",
                 jwt,
-                from: userId,
-                to: `BOT-${this.channelId}`,
-                username
+                to: `BOT-${this.channelId}`
             }));
 
             // Every 5 minutes, check to see if the bot is still up.
@@ -59,7 +57,6 @@ export default class App extends React.Component{
                 this.ws.send(JSON.stringify({
                     type: "PING",
                     jwt,
-                    from: userId,
                     to: `BOT-${this.channelId}`
                 }));
 
@@ -114,7 +111,7 @@ export default class App extends React.Component{
 
         this.ws.onerror = (err) => {
             console.error('Socket encountered error: ', err.message, 'Closing socket');
-            this.setState({ botIsLive: false });
+            this.setState({ botIsLive: false, connecting: false, wsError: "Connection failed.  Bot is likely turned off right now." });
             ws.close();
         };
     }
@@ -184,12 +181,8 @@ export default class App extends React.Component{
                 this.jwt = auth.token;
                 this.userId = userId;
                 if(!this.state.finishedLoading){
-                    this.getTwitchProfile(this.userId)
-                    .then ((profile) => {
-                        this.username = profile.name;
-                        this.getUser(() => {
-                            this.connect();
-                        });
+                    this.getUser(() => {
+                        this.connect();
                     });
                     
                     this.setState(() => {
@@ -222,9 +215,7 @@ export default class App extends React.Component{
         this.ws.send(JSON.stringify({
             type: "CONTEXT",
             jwt: this.jwt,
-            to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name
+            to: `BOT-${this.channelId}`
         }));
     }
 
@@ -233,8 +224,6 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!attack ${target}`
         }));
     }
@@ -245,8 +234,6 @@ export default class App extends React.Component{
                 type: "COMMAND",
                 jwt: this.jwt,
                 to: `BOT-${this.channelId}`,
-                from: this.userId,
-                username: this.state.user.name,
                 message: `!use ${abilityId}`
             }));
             return;
@@ -256,8 +243,6 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!use ${abilityId} ${target}`
         }));
     }
@@ -268,8 +253,6 @@ export default class App extends React.Component{
                 type: "COMMAND",
                 jwt: this.jwt,
                 to: `BOT-${this.channelId}`,
-                from: this.userId,
-                username: this.state.user.name,
                 message: `!use ${itemId}`
             }));
             return;
@@ -279,8 +262,6 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!use ${itemId} ${target}`
         }));
     }
@@ -290,8 +271,6 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!give ${itemId} ${target}`
         }));
     }
@@ -301,8 +280,6 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!explore`
         }));
     }
@@ -325,43 +302,30 @@ export default class App extends React.Component{
             type: "COMMAND",
             jwt: this.jwt,
             to: `BOT-${this.channelId}`,
-            from: this.userId,
-            username: this.state.user.name,
             message: `!ready`
         }));
         this.setState({ready: true});
     }
 
-    getTwitchProfile(userId) {
-        return axios.get(`https://api.twitch.tv/kraken/users/${userId}`, {
+    createBattler() {
+        let userId = this.userId;
+        let user = {
+            userId
+        };
+
+        this.setState({connecting: true});
+
+        axios.post(`https://deusprogrammer.com/api/ext/twitch/users`, user, {
             headers: {
-                "Client-ID": `z91swgqes7e0y7r8oa1t32u6uokyiw`,
-                Accept: "application/vnd.twitchtv.v5+json"
+                Authorization: `Bearer ${this.jwt}`
             }
         })
-    }
-
-    createBattler() {
-        return this.getTwitchProfile(this.userId)
-            .then((response) => {
-                let name = response.data.name;
-                let userId = this.userId;
-                let user = {
-                    userId,
-                    name
-                };
-
-                return axios.post(`https://deusprogrammer.com/api/ext/twitch/users`, user, {
-                    headers: {
-                        Authorization: `Bearer ${this.jwt}`
-                    }
-                });
+        .then(() => {
+            this.setState({connecting: false});
+            this.getUser(() => {
+                this.ws.close();
             })
-            .then((response) => {
-                this.getUser(() => {
-                    this.ws.close();
-                })
-            });
+        });
     }
     
     render() {
@@ -370,38 +334,50 @@ export default class App extends React.Component{
 
         if (!this.twitch.viewer.isLinked) {
             return (
-                <div style={{color: "white", textAlign: "center"}}>
-                    <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
-                    <p>{introText}</p>
-                    <p>In order to use this extension, you must allow us to see your twitch username.  Please click the button below and grant us access if you wish to create a battler and use this extension.</p>
-                    <button onClick={() => {this.twitch.actions.requestIdShare();}}>Link User</button>
-                    {earlyAccessNotice}
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>
+                        <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
+                        <p>{introText}</p>
+                        <p>In order to use this extension, you must allow us to see your twitch username.  Please click the button below and grant us access if you wish to create a battler and use this extension.</p>
+                        <button onClick={() => {this.twitch.actions.requestIdShare()}}>Link User</button>
+                        {earlyAccessNotice}
+                    </div>
                 </div>
             )
         }
 
         if (!this.state.hasBattler) {
             return (
-                <div style={{color: "white", textAlign: "center"}}>
-                    <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
-                    <p>{introText}  You do not currently have a battler, however if you would like to participate in our stream battles, please click the button below.</p>
-                    <button onClick={() => { this.createBattler();}}>Create a Battler</button>
-                    {earlyAccessNotice}
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>
+                        <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
+                        <p>{introText}  You do not currently have a battler, however if you would like to participate in our stream battles, please click the button below.</p>
+                        <button onClick={() => {this.createBattler()}} disabled={this.state.connecting}>Create a Battler</button>
+                        {earlyAccessNotice}
+                    </div>
                 </div>
             )
         }
 
         if (this.state.error) {
-            return <div style={{color: "white", textAlign: "center"}}>This panel is currently unavailable</div>
+            return (
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>This panel is currently unavailable</div>
+                </div>
+            );
         }
 
         if (!this.state.botIsLive) {
             return (
-                <div style={{color: "white", textAlign: "center"}}>
-                    <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
-                    <p>The bot is currently asleep.  Please come back during a stream.</p>
-                    <p>If you believe the bot is awake, click below to refresh your connection.  It will take about 5 seconds for the connection to come back up.</p>
-                    <button onClick={() => {this.ws.close()}}>Refresh</button>
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>
+                        <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
+                        <p>The bot is currently asleep.  Please come back during a stream.</p>
+                        <p>If you believe the bot is awake, click below to refresh your connection.  It will take about 5 seconds for the connection to come back up.</p>
+                        <button onClick={() => {this.setState({connecting: true}); this.ws.close();}} disabled={this.state.connecting}>Refresh</button>
+                        {this.state.connecting ? <div>Refreshing connection to bot...</div> : null}
+                        <div>{this.state.wsError}</div>
+                    </div>
                 </div>
             )
         }
@@ -409,16 +385,22 @@ export default class App extends React.Component{
         let user = this.state.user;
 
         if (!user) {
-            return <div style={{color: "white", textAlign: "center"}}>Loading Battler...</div>;
+            return (
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>Loading Battler...</div>
+                </div>
+            );
         }
 
         if (!this.state.ready) {
             return (
-                <div style={{color: "white", textAlign: "center"}}>
-                    <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
-                    <p>Greetings, {user.name}, are you ready to enter the dungeon?  Currently, you are in a passive state where nothing can attack you.  Clicking the below button will put you in active state until you are idle for at least 10 minutes.</p>
-                    <button type="button" onClick={() => {this.readyUp()}}>Enter the Dungeon</button>
-                    {earlyAccessNotice}
+                <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                    <div style={{textAlign: "center"}}>
+                        <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
+                        <p>Greetings, {user.name}, are you ready to enter the dungeon?  Currently, you are in a passive state where nothing can attack you.  Clicking the below button will put you in active state until you are idle for at least 10 minutes.</p>
+                        <button type="button" onClick={() => {this.readyUp()}}>Enter the Dungeon</button>
+                        {earlyAccessNotice}
+                    </div>
                 </div>
             )
         }
@@ -432,7 +414,7 @@ export default class App extends React.Component{
                                 <h3 style={{textAlign: "center"}}>Stats</h3>
                                 <div style={{display: "table", margin: "auto"}}>
                                     <div title="Your health points determine whether you are alive or not.  Once you hit zero, it's over." style={{cursor: "pointer", display: "table-row"}}>
-                                        <div style={{background: "teal", color: "white", fontWeight: "bolder", display: "table-cell", borderBottom: "1px solid black"}}>HP</div>
+                                        <div style={{background: "teal", fontWeight: "bolder", display: "table-cell", borderBottom: "1px solid black"}}>HP</div>
                                         <div style={{display: "table-cell", verticalAlign: "middle"}}> 
                                             <div style={{position: "relative", width: "100%"}}>
                                                 <div style={{textAlign: "center", width: "100%", position: "absolute", top: "0px", left: "0px"}}>{user.hp}/{user.maxHp}</div>
@@ -443,11 +425,11 @@ export default class App extends React.Component{
                                         </div>
                                     </div>
                                     <div title="Your action points are consumed when you perform actions like attacking or using abilities." style={{cursor: "pointer", display: "table-row"}}>
-                                        <div style={{background: "teal", color: "white", fontWeight: "bolder", display: "table-cell", borderBottom: "1px solid black"}}>AP</div>
+                                        <div style={{background: "teal", fontWeight: "bolder", display: "table-cell", borderBottom: "1px solid black"}}>AP</div>
                                         <div style={{textAlign: "center", display: "table-cell"}}>{user.ap}</div>
                                     </div>
                                     <div title="This is the range of damage you can do with your current weapon." style={{cursor: "pointer", display: "table-row"}}>
-                                        <div style={{background: "teal", color: "white", fontWeight: "bolder", display: "table-cell"}}>Damage Range</div>
+                                        <div style={{background: "teal", fontWeight: "bolder", display: "table-cell"}}>Damage Range</div>
                                         <div style={{textAlign: "center", display: "table-cell"}}>{this.damageRange(user).low} - {this.damageRange(user).high}</div>
                                     </div>
                                 </div>
@@ -552,8 +534,8 @@ export default class App extends React.Component{
                         </div> : null
                     }
                     { this.state.mode === "targets" ?
-                        <div>
-                            <h3 style={{textAlign: "center", color: "white"}}>Select a Target</h3>
+                        <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
+                            <h3 style={{textAlign: "center"}}>Select a Target</h3>
                             <div style={{textAlign: "center", fontSize: "12px", backgroundColor: "gray"}}>Player Targets</div>
                             {this.state.selection.area !== "ALL" && ["ANY", "CHAT"].includes(this.state.selection.target) ?
                                 <React.Fragment>
@@ -583,7 +565,7 @@ export default class App extends React.Component{
                         </div> : null
                     }
                     { this.state.mode !== "stats" ?
-                        <div style={{textAlign: "center", color: "white"}}>
+                        <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} style={{textAlign: "center"}} >
                             <p>Hover over abilities and items for a description.</p>
                             <button onClick={() => {this.setState({mode: "stats", action: "", selection: ""})}}>Back</button>
                         </div>
