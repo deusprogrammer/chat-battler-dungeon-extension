@@ -498,19 +498,19 @@ export default class App extends React.Component{
                                         <div style={{fontSize: "12px", backgroundColor: "gray"}}>Attack Abilities</div>
                                         { user.abilities.filter(ability => ability.element !== "HEALING" && ability.element !== "BUFFING").map((ability) => {
                                             return (
-                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name}</button>
+                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name} ({ability.ap}AP)</button>
                                             )
                                         })}
                                         <div style={{fontSize: "12px", backgroundColor: "gray"}}>Healing Abilities</div>
                                         { user.abilities.filter(ability => ability.element === "HEALING").map((ability) => {
                                             return (
-                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name}</button>
+                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name} ({ability.ap}AP)</button>
                                             )
                                         })}
                                         <div style={{fontSize: "12px", backgroundColor: "gray"}}>Buff Abilities</div>
                                         { user.abilities.filter(ability => ability.element === "BUFFING").map((ability) => {
                                             return (
-                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name}</button>
+                                                <button title={ability.description} key={`${ability.id}`} style={{fontSize: "10px"}} onClick={() => {this.setState({mode: "targets", action: "ability", selection: ability})}}>{ability.name} ({ability.ap}AP)</button>
                                             )
                                         })}
                                     </React.Fragment> : null 
