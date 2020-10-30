@@ -16,7 +16,7 @@ export default class App extends React.Component{
         //if the extension is running on twitch or dev rig, set the shorthand here. otherwise, set to null. 
         this.twitch = window.Twitch ? window.Twitch.ext : null
         this.ws = null;
-        this.pingReceived = false;
+        this.commandAwk = false;
         this.pingInterval = null;
         this.state = {
             finishedLoading: false,
@@ -59,15 +59,6 @@ export default class App extends React.Component{
                     jwt,
                     to: `BOT-${this.channelId}`
                 }));
-
-                this.pingReceived = false;
-
-                // If pong isn't returned within 30 seconds, set bot state to sleeping and 
-                setTimeout(() => {
-                    if (!this.pingReceived) {
-                        this.setState({botIsLive: false});
-                    }
-                }, 20 * 1000);
             }, 20 * 1000);
         }
 
@@ -81,6 +72,7 @@ export default class App extends React.Component{
                 }
 
                 this.setState({
+                    connecting: false,
                     players: event.data.players,
                     monsters: event.data.monsters,
                     buffs: event.data.buffs,
@@ -89,12 +81,13 @@ export default class App extends React.Component{
                     botIsLive: true
                 })
             } else if (event.type === "SHUTDOWN") {
-                this.setState({botIsLive: false});
+                this.setState({botIsLive: false, connecting: false});
             } else if (event.type === "STARTUP") {
-                this.setState({botIsLive: true});
-            } else if (event.type === "PONG") {
-                this.pingReceived = true;
-                this.setState({botIsLive: true});
+                this.setState({botIsLive: true, ready: false, connecting: false});
+            } else if (event.type === "SEND_FAILURE") {
+                setTimeout(() => {
+                    this.setState({botIsLive: false, connecting: false, ready: false, wsError: "Bot is unreachable.  Try again later."});
+                }, 2 * 1000)
             }
         };
 
@@ -217,6 +210,8 @@ export default class App extends React.Component{
             jwt: this.jwt,
             to: `BOT-${this.channelId}`
         }));
+
+        this.waitForAwk();
     }
 
     onAttack(target) {
@@ -285,6 +280,8 @@ export default class App extends React.Component{
     }
 
     onAction(action, selection, target) {
+        this.setState({connecting: true, wsError: "", mode: "stats"});
+
         if (action === "attack") {
             this.onAttack(target);
         } else if (action === "ability") {
@@ -294,7 +291,6 @@ export default class App extends React.Component{
         } else if (action === "giveItem") {
             this.onGiveItem(selection, target);
         }
-        this.setState({mode: "stats", action: "", selection: ""});
     }
 
     readyUp() {
@@ -304,7 +300,14 @@ export default class App extends React.Component{
             to: `BOT-${this.channelId}`,
             message: `!ready`
         }));
-        this.setState({ready: true});
+    }
+
+    requestContext() {
+        this.ws.send(JSON.stringify({
+            type: "CONTEXT",
+            jwt: this.jwt,
+            to: `BOT-${this.channelId}`
+        }));
     }
 
     createBattler() {
@@ -323,7 +326,7 @@ export default class App extends React.Component{
         .then(() => {
             this.setState({connecting: false});
             this.getUser(() => {
-                this.ws.close();
+                this.requestContext();
             })
         });
     }
@@ -374,7 +377,7 @@ export default class App extends React.Component{
                         <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
                         <p>The bot is currently asleep.  Please come back during a stream.</p>
                         <p>If you believe the bot is awake, click below to refresh your connection.  It will take about 5 seconds for the connection to come back up.</p>
-                        <button onClick={() => {this.setState({connecting: true}); this.ws.close();}} disabled={this.state.connecting}>Refresh</button>
+                        <button onClick={() => {this.setState({connecting: true, wsError: ""}); this.requestContext();}} disabled={this.state.connecting}>Refresh</button>
                         {this.state.connecting ? <div>Refreshing connection to bot...</div> : null}
                         <div>{this.state.wsError}</div>
                     </div>
@@ -398,7 +401,7 @@ export default class App extends React.Component{
                     <div style={{textAlign: "center"}}>
                         <h4 style={{textAlign: "center"}}>Chat Battler Dungeon Ver 1.0.0b</h4>
                         <p>Greetings, {user.name}, are you ready to enter the dungeon?  Currently, you are in a passive state where nothing can attack you.  Clicking the below button will put you in active state until you are idle for at least 10 minutes.</p>
-                        <button type="button" onClick={() => {this.readyUp()}}>Enter the Dungeon</button>
+                        <button type="button" onClick={() => {this.setState({connecting: true}); this.readyUp()}} disabled={this.state.connecting}>Enter the Dungeon</button>
                         {earlyAccessNotice}
                     </div>
                 </div>
@@ -438,10 +441,10 @@ export default class App extends React.Component{
                                 </div>
                                 <h3>Actions</h3>
                                 <div style={{textAlign: "center"}}>
-                                    <button title="Attack a foe with your currently equipped weapon" style={{width: "100px"}} onClick={() => {this.setState({mode: "targets", action: "attack", selection: {area: "ONE", target: "ANY"}})}}>Attack</button>
-                                    <button title="Use an ability" style={{width: "100px"}} onClick={() => {this.setState({mode: "ability"})}}>Ability</button><br/>
-                                    <button title="Look at or use items" style={{width: "100px"}} onClick={() => {this.setState({mode: "items"})}}>Items</button>
-                                    <button title="Explore the dungeon and look for trouble" style={{width: "100px"}} onClick={() => {this.onExplore()}}>Explore</button>
+                                    <button title="Attack a foe with your currently equipped weapon" style={{width: "100px"}} onClick={() => {this.setState({mode: "targets", action: "attack", selection: {area: "ONE", target: "ANY"}})}} disabled={this.state.connecting}>Attack</button>
+                                    <button title="Use an ability" style={{width: "100px"}} onClick={() => {this.setState({mode: "ability"})}} disabled={this.state.connecting}>Ability</button><br/>
+                                    <button title="Look at or use items" style={{width: "100px"}} onClick={() => {this.setState({mode: "items"})}} disabled={this.state.connecting}>Items</button>
+                                    <button title="Explore the dungeon and look for trouble" style={{width: "100px"}} onClick={() => {this.setState({connecting: true, wsError: ""}); this.onExplore()}} disabled={this.state.connecting}>Explore</button>
                                 </div>
                             </div>
                         </div> : null
@@ -456,8 +459,8 @@ export default class App extends React.Component{
                                         return (
                                             <div style={{display: "table-row"}}>
                                                 <div title={item.description} style={{display: "table-cell", width: "200px", padding: "5px"}}>{item.name}</div>
-                                                <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Equip</span></div>
-                                                <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Give</span></div>
+                                                {/* <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Equip</span></div> */}
+                                                <div style={{display: "table-cell", padding: "5px"}}><span  style={{cursor: "pointer", backgroundColor: "green", border: "1px solid white", padding: "2px"}} onClick={() => {this.setState({mode: "targets", action: "giveItem", selection: {id: item.id, area: "ONE", target: "CHAT"}})}}>Give</span></div>
                                             </div>
                                         )
                                     })}
@@ -466,8 +469,8 @@ export default class App extends React.Component{
                                         return (
                                             <div style={{display: "table-row"}}>
                                                 <div title={item.description} style={{display: "table-cell", width: "200px", padding: "5px"}}>{item.name}</div>
-                                                <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Equip</span></div>
-                                                <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Give</span></div>
+                                                {/* <div style={{display: "table-cell", padding: "5px"}}><span style={{cursor: "pointer"}}>Equip</span></div> */}
+                                                <div style={{display: "table-cell", padding: "5px"}}><span  style={{cursor: "pointer", backgroundColor: "green", border: "1px solid white", padding: "2px"}} onClick={() => {this.setState({mode: "targets", action: "giveItem", selection: {id: item.id, area: "ONE", target: "CHAT"}})}}>Give</span></div>
                                             </div>
                                         )
                                     })}
@@ -484,23 +487,6 @@ export default class App extends React.Component{
                                 </div>
                             </div>
                             <hr/>
-                        </div> : null
-                    }
-                    { this.state.mode === "attack" ?
-                        <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} >
-                            <div>
-                                <h3 style={{textAlign: "center"}}>Attack</h3>
-                                <div style={{textAlign: "center", fontSize: "12px", backgroundColor: "gray"}}>Player Targets</div>
-                                {this.state.players.map((player) => {
-                                    if (player !== this.state.user.name) {
-                                        return <button onClick={() => {this.setState({mode: "targets", action: "attack"})}}>{player}</button>
-                                    }
-                                })}
-                                <div style={{textAlign: "center", fontSize: "12px", backgroundColor: "gray"}}>Monster Targets</div>
-                                {this.state.monsters.map((monster) => {
-                                    return <button onClick={() => {this.setState({mode: "targets", action: "attack"})}}>{monster}</button>
-                                })}
-                            </div>
                         </div> : null
                     }
                     { this.state.mode === "ability" ?
@@ -543,31 +529,31 @@ export default class App extends React.Component{
                                         if (player === this.state.user.name) {
                                             return
                                         }
-                                        return <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, player)}}>{player}</button>
+                                        return <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, player)}} disabled={this.state.connecting}>{player}</button>
                                     })}
-                                    <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, this.state.user.name)}}>Yourself</button>
+                                    <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, this.state.user.name)}} disabled={this.state.connecting}>Yourself</button>
                                 </React.Fragment> : null
                             }
                             {this.state.selection.area === "ALL" && ["ANY", "CHAT"].includes(this.state.selection.target) ?
-                                <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, "ALL")}}>All Players</button> : null
+                                <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, "ALL")}} disabled={this.state.connecting}>All Players</button> : null
                             }
                             <div style={{textAlign: "center", fontSize: "12px", backgroundColor: "gray"}}>Monster Targets</div>
                             {this.state.selection.area !== "ALL" && ["ANY", "ENEMY"].includes(this.state.selection.target) ?
                                 <React.Fragment>
                                     {this.state.monsters.map((monster) => {
-                                        return <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, monster)}}>{monster}</button>
+                                        return <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, monster)}} disabled={this.state.connecting}>{monster}</button>
                                     })}
                                 </React.Fragment> : null
                             }
                             {this.state.selection.area === "ALL" && ["ANY", "ENEMY"].includes(this.state.selection.target) ?
-                                <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, "ALL")}}>All Enemies</button> : null
+                                <button onClick={() => {this.onAction(this.state.action, this.state.selection.id, "ALL")}} disabled={this.state.connecting}>All Enemies</button> : null
                             }
                         </div> : null
                     }
                     { this.state.mode !== "stats" ?
                         <div className={this.state.theme === 'light' ? 'App-light' : 'App-dark'} style={{textAlign: "center"}} >
                             <p>Hover over abilities and items for a description.</p>
-                            <button onClick={() => {this.setState({mode: "stats", action: "", selection: ""})}}>Back</button>
+                            <button onClick={() => {this.setState({mode: "stats", action: "", selection: ""})}} disabled={this.state.connecting}>Back</button>
                         </div>
                     : null}
                 </div>
